@@ -1,0 +1,12 @@
+node_modules
+.pnpm-store
+.DS_Store
+.env
+.env.local
+.env.*
+dist
+coverage
+.vscode
+*.log
+.tmp
+.cache

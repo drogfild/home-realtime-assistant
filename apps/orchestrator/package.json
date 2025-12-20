@@ -1,0 +1,40 @@
+{
+  "name": "@home/orchestrator",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint 'src/**/*.{ts,tsx}'",
+    "test": "vitest run",
+    "format": "prettier --write 'src/**/*.{ts,tsx,json,md}'"
+  },
+  "dependencies": {
+    "@home/shared": "workspace:*",
+    "@koa/router": "12.0.1",
+    "axios": "1.7.2",
+    "dotenv": "16.4.5",
+    "koa": "2.15.3",
+    "koa-bodyparser": "4.4.1",
+    "koa-cors": "0.0.16",
+    "koa-helmet": "7.0.2",
+    "koa-ratelimit": "5.0.1",
+    "nanoid": "5.0.7"
+  },
+  "devDependencies": {
+    "@types/koa": "2.13.12",
+    "@types/koa__router": "12.0.5",
+    "@types/koa-bodyparser": "4.3.12",
+    "@types/koa-cors": "0.0.2",
+    "@types/koa-helmet": "6.0.7",
+    "@types/node": "22.5.0",
+    "@types/koa-ratelimit": "5.0.2",
+    "prettier": "3.2.5",
+    "typescript": "5.4.5",
+    "vitest": "1.6.0",
+    "tsx": "4.7.2",
+    "eslint": "8.57.0"
+  }
+}

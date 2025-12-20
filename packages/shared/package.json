@@ -1,0 +1,28 @@
+{
+  "name": "@home/shared",
+  "version": "0.1.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint 'src/**/*.{ts,tsx}'",
+    "test": "vitest run",
+    "format": "prettier --write 'src/**/*.{ts,tsx,json,md}'"
+  },
+  "dependencies": {
+    "pino": "9.3.1",
+    "zod": "3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "22.5.0",
+    "eslint": "8.57.0",
+    "eslint-config-prettier": "9.1.0",
+    "eslint-plugin-import": "2.29.1",
+    "eslint-plugin-jsonc": "2.14.1",
+    "eslint-plugin-n": "16.6.2",
+    "eslint-plugin-promise": "6.2.0",
+    "prettier": "3.2.5",
+    "typescript": "5.4.5",
+    "vitest": "1.6.0"
+  }
+}
