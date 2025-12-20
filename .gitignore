@@ -12,3 +12,5 @@ coverage
 *.log
 .tmp
 .cache
+apps/tool-gateway/data
+infra/dev-certs
