@@ -8,7 +8,7 @@ Jatkuvasti kuunteleva PWA-pohjainen puheassistentti, joka käyttää OpenAI Real
 - **packages/shared** – jaetut skeemat, apurit ja loggerit.
 - **infra** – docker-compose ja käänteisen proxyn esimerkit.
 
-## Nopea startti docker-composella
+## Nopea startti docker-composella 
 
 1. Kopioi repo-juuren `.env.example` → `.env` ja täytä arvot (vähintään `OPENAI_API_KEY`, `AUTH_SHARED_SECRET`, `INTERNAL_HMAC_SECRET`, `ALLOWLIST_HTTP_HOSTS`). Samat arvot jaetaan konteille.
 2. Aja:
@@ -86,3 +86,6 @@ Tool-gateway rekisteröi työkalut `apps/tool-gateway/src/tools/index.ts` -tiedo
 2. Lisää työkalu `buildTools`-funktioon `index.ts`:ssa.
 3. Päivitä tarvittaessa `ALLOWLIST_HTTP_HOSTS` tai muut ympäristömuuttujat `.env`-tiedostoon.
 4. Lisää testit `src/tools/*.test.ts`.
+
+
+test
