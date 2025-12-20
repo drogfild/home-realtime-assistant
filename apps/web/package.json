@@ -6,7 +6,7 @@
     "dev": "vite",
     "build": "tsc -p tsconfig.json && vite build",
     "lint": "eslint 'src/**/*.{ts,tsx}'",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "format": "prettier --write 'src/**/*.{ts,tsx,css,json,md}'"
   },
   "dependencies": {

@@ -3,7 +3,7 @@ import { parseEnv } from '@home/shared';
 
 const EnvSchema = z.object({
   OPENAI_API_KEY: z.string().min(1),
-  OPENAI_REALTIME_MODEL: z.string().min(1),
+  OPENAI_REALTIME_MODEL: z.string().min(1).default('gpt-4o-realtime-preview'),
   ORCHESTRATOR_PORT: z.coerce.number().default(3001),
   ORCHESTRATOR_BASE_URL: z.string().url(),
   TOOL_GATEWAY_URL: z.string().url(),
