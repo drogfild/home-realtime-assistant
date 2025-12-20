@@ -4,6 +4,10 @@ import helmet from 'koa-helmet';
 import cors from 'koa-cors';
 import rateLimit from 'koa-ratelimit';
 import dotenv from 'dotenv';
+import os from 'node:os';
+import fs from 'node:fs';
+import http from 'node:http';
+import https from 'node:https';
 import { createRoutes } from './routes';
 import { attachRequestIds } from './auth';
 import { loadConfig } from './config';
@@ -48,8 +52,11 @@ async function bootstrap() {
   app.use(router.allowedMethods());
 
   const port = env.ORCHESTRATOR_PORT;
-  app.listen(port, () => {
-    logger.info(`orchestrator listening on ${port}`);
+  const server = createServer(app);
+  server.listen(port, () => {
+    const localIp = getLocalIp();
+    const localUrl = localIp ? `${env.ORCHESTRATOR_BASE_URL.startsWith('https') ? 'https' : 'http'}://${localIp}:${port}` : null;
+    logger.info(`orchestrator listening on ${env.ORCHESTRATOR_BASE_URL}${localUrl ? ` (local: ${localUrl})` : ''}`);
   });
 }
 
@@ -58,3 +65,27 @@ bootstrap().catch((error) => {
   console.error('Failed to start orchestrator', error);
   process.exit(1);
 });
+
+function getLocalIp(): string | null {
+  const interfaces = os.networkInterfaces();
+  for (const iface of Object.values(interfaces)) {
+    if (!iface) continue;
+    for (const addr of iface) {
+      if (addr.family === 'IPv4' && !addr.internal) {
+        return addr.address;
+      }
+    }
+  }
+  return null;
+}
+
+function createServer(app: Koa) {
+  const keyPath = process.env.ORCHESTRATOR_TLS_KEY;
+  const certPath = process.env.ORCHESTRATOR_TLS_CERT;
+  if (keyPath && certPath) {
+    const key = fs.readFileSync(keyPath);
+    const cert = fs.readFileSync(certPath);
+    return https.createServer({ key, cert }, app.callback());
+  }
+  return http.createServer(app.callback());
+}

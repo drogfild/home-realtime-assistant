@@ -50,6 +50,9 @@ importers:
       nanoid:
         specifier: 5.0.7
         version: 5.0.7
+      zod:
+        specifier: 3.23.8
+        version: 3.23.8
     devDependencies:
       '@types/koa':
         specifier: 2.13.12

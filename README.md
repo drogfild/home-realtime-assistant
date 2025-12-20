@@ -21,6 +21,14 @@ Selainpyynnöt `POST /api/realtime/token` vaativat headerin `x-shared-secret` (`
 
 ## Kehityskäynnistys ilman Dockeria
 
+### Riippuvuudet (Ubuntu 24.04)
+
+```bash
+sudo apt update
+sudo apt install -y nodejs npm
+sudo npm i -g pnpm
+```
+
 ```bash
 pnpm install
 pnpm --filter @home/tool-gateway dev   # portti 4001

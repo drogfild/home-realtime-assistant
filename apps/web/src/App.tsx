@@ -2,14 +2,16 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 
 const ORCHESTRATOR_BASE_URL = import.meta.env.VITE_ORCHESTRATOR_BASE_URL as string;
+const TRANSCRIBE_MODEL = 'gpt-4o-mini-transcribe';
 
 type Status = 'idle' | 'listening' | 'thinking' | 'speaking';
 
 type EventLogItem = { ts: number; message: string };
+type TranscriptItem = { ts: number; text: string };
 
 function useEventLog() {
   const [events, setEvents] = useState<EventLogItem[]>([]);
-  const push = (message: string) => setEvents((prev) => [...prev.slice(-50), { ts: Date.now(), message }]);
+  const push = (message: string) => setEvents((prev) => [...prev.slice(-200), { ts: Date.now(), message }]);
   return { events, push };
 }
 
@@ -19,12 +21,29 @@ async function fetchToken(sharedSecret: string) {
   return response.data;
 }
 
+async function exchangeOfferForAnswer(offerSdp: string, clientSecret: string, sharedSecret: string) {
+  const headers: Record<string, string> = { 'x-shared-secret': sharedSecret };
+  const response = await axios.post(
+    `${ORCHESTRATOR_BASE_URL}/api/realtime/webrtc`,
+    { offerSdp, clientSecret },
+    { headers },
+  );
+  return response.data as { answerSdp: string };
+}
+
 export default function App() {
   const [status, setStatus] = useState<Status>('idle');
   const [pushToTalk, setPushToTalk] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [sharedSecret, setSharedSecret] = useState<string>(() => localStorage.getItem('sharedSecret') || '');
+  const [userDraft, setUserDraft] = useState('');
+  const [assistantDraft, setAssistantDraft] = useState('');
+  const [userTranscripts, setUserTranscripts] = useState<TranscriptItem[]>([]);
+  const [assistantTranscripts, setAssistantTranscripts] = useState<TranscriptItem[]>([]);
+  const userDraftRef = useRef('');
+  const assistantDraftRef = useRef('');
+  const sessionUpdateSentRef = useRef(false);
   const { events, push } = useEventLog();
   const rtcRef = useRef<RTCPeerConnection | null>(null);
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
@@ -34,6 +53,105 @@ export default function App() {
       navigator.serviceWorker.register('/service-worker.js').catch(() => {});
     }
   }, []);
+
+  const appendUserDraft = (delta: string) => {
+    const next = `${userDraftRef.current}${delta}`;
+    userDraftRef.current = next;
+    setUserDraft(next);
+  };
+
+  const appendAssistantDraft = (delta: string) => {
+    const next = `${assistantDraftRef.current}${delta}`;
+    assistantDraftRef.current = next;
+    setAssistantDraft(next);
+  };
+
+  const finalizeUserDraft = (text?: string) => {
+    const finalText = (text ?? userDraftRef.current).trim();
+    if (!finalText) return;
+    setUserTranscripts((prev) => [...prev.slice(-19), { ts: Date.now(), text: finalText }]);
+    userDraftRef.current = '';
+    setUserDraft('');
+  };
+
+  const finalizeAssistantDraft = (text?: string) => {
+    const finalText = (text ?? assistantDraftRef.current).trim();
+    if (!finalText) return;
+    setAssistantTranscripts((prev) => {
+      if (prev.length > 0 && prev[prev.length - 1].text === finalText) {
+        return prev;
+      }
+      return [...prev.slice(-19), { ts: Date.now(), text: finalText }];
+    });
+    assistantDraftRef.current = '';
+    setAssistantDraft('');
+  };
+
+  const handleRealtimeEvent = (raw: string) => {
+    let parsed: { type?: string; [key: string]: unknown };
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return;
+    }
+
+    if (parsed.type === 'response.audio_transcript.delta' && typeof parsed.delta === 'string') {
+      appendAssistantDraft(parsed.delta);
+      return;
+    }
+
+    if (parsed.type === 'response.audio_transcript.done') {
+      const transcript = typeof parsed.transcript === 'string' ? parsed.transcript : undefined;
+      finalizeAssistantDraft(transcript);
+      return;
+    }
+
+    if (parsed.type === 'response.content_part.done') {
+      return;
+    }
+
+    if (parsed.type === 'input_audio_transcript.delta' && typeof parsed.delta === 'string') {
+      appendUserDraft(parsed.delta);
+      return;
+    }
+
+    if (parsed.type === 'input_audio_transcript.done' || parsed.type === 'input_audio_transcription.completed') {
+      const transcript = typeof parsed.transcript === 'string' ? parsed.transcript : undefined;
+      finalizeUserDraft(transcript);
+      return;
+    }
+
+    if (parsed.type === 'conversation.item.input_audio_transcription.delta') {
+      const delta = typeof parsed.delta === 'string' ? parsed.delta : undefined;
+      if (delta) {
+        appendUserDraft(delta);
+      }
+      return;
+    }
+
+    if (parsed.type === 'conversation.item.input_audio_transcription.completed') {
+      const transcript = typeof parsed.transcript === 'string' ? parsed.transcript : undefined;
+      finalizeUserDraft(transcript);
+      return;
+    }
+
+    if (parsed.type === 'conversation.item.created') {
+      const item = parsed.item as { role?: string; content?: Array<{ type?: string; transcript?: string }> } | undefined;
+      if (item?.role === 'user' && Array.isArray(item.content)) {
+        const transcript = item.content.find((entry) => entry.type === 'input_audio')?.transcript;
+        if (typeof transcript === 'string') {
+          finalizeUserDraft(transcript);
+        }
+      }
+    }
+
+    if (parsed.type === 'session.updated') {
+      const session = parsed.session as { input_audio_transcription?: { model?: string; language?: string } } | undefined;
+      if (session?.input_audio_transcription?.model) {
+        push(`Session updated: transcription=${session.input_audio_transcription.model}`);
+      }
+    }
+  };
 
   const connect = useMemo(
     () =>
@@ -52,20 +170,53 @@ export default function App() {
           });
           rtcRef.current = rtc;
 
+          if (!navigator.mediaDevices?.getUserMedia) {
+            throw new Error('getUserMedia is unavailable (requires HTTPS or localhost).');
+          }
+          const media = await navigator.mediaDevices.getUserMedia({ audio: true });
+          media.getTracks().forEach((track) => rtc.addTrack(track, media));
+
           const dc = rtc.createDataChannel('events');
           dataChannelRef.current = dc;
-          dc.onmessage = (event) => push(`Event: ${event.data}`);
+          dc.onmessage = (event) => {
+            const raw = typeof event.data === 'string' ? event.data : JSON.stringify(event.data);
+            handleRealtimeEvent(raw);
+            push(`Event: ${raw}`);
+          };
+          const sendSessionUpdate = () => {
+            if (sessionUpdateSentRef.current) return;
+            if (dc.readyState !== 'open') return;
+            const update = {
+              type: 'session.update',
+              session: {
+                input_audio_transcription: { model: TRANSCRIBE_MODEL, language: 'fi' },
+              },
+            };
+            dc.send(JSON.stringify(update));
+            sessionUpdateSentRef.current = true;
+            push(`Sent session.update (transcription: ${TRANSCRIBE_MODEL})`);
+          };
+          dc.onopen = sendSessionUpdate;
 
-          rtc.onconnectionstatechange = () => push(`RTC state: ${rtc.connectionState}`);
+          rtc.onconnectionstatechange = () => {
+            push(`RTC state: ${rtc.connectionState}`);
+            if (rtc.connectionState === 'connected') {
+              sendSessionUpdate();
+            }
+          };
 
           const offer = await rtc.createOffer();
           await rtc.setLocalDescription(offer);
 
           push('Created SDP offer');
 
-          // TODO: Complete full WebRTC negotiation with OpenAI Realtime API using the ephemeral token.
-          // The token should be exchanged with the Realtime endpoint that returns an answer SDP.
-          push('Ephemeral token ready; complete negotiation against Realtime API backend');
+          const clientSecret = token?.value as string | undefined;
+          if (!clientSecret) {
+            throw new Error('Missing client secret for WebRTC exchange');
+          }
+          const { answerSdp } = await exchangeOfferForAnswer(offer.sdp ?? '', clientSecret, sharedSecret);
+          await rtc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
+          push('Applied SDP answer');
           setStatus('listening');
         } catch (error) {
           console.error(error);
@@ -82,6 +233,11 @@ export default function App() {
     rtcRef.current?.close();
     rtcRef.current = null;
     dataChannelRef.current = null;
+    sessionUpdateSentRef.current = false;
+    userDraftRef.current = '';
+    assistantDraftRef.current = '';
+    setUserDraft('');
+    setAssistantDraft('');
     setStatus('idle');
     push('Stopped listening');
   };
@@ -98,7 +254,7 @@ export default function App() {
   return (
     <main className="app">
       <header>
-        <h1>Home Realtime Assistant</h1>
+        <h1>Jaska Realtime Assistant</h1>
         <p>Optimized for iOS Safari / PWA. Start listening to begin voice control.</p>
       </header>
 
@@ -133,11 +289,32 @@ export default function App() {
         {isMuted && <p>Microphone muted</p>}
       </section>
 
+      <section className="transcripts">
+        <div className="transcript-card">
+          <h2>Your speech</h2>
+          <div className="transcript-draft">{userDraft || '…'}</div>
+          <div className="transcript-history">
+            {userTranscripts.map((entry, index) => (
+              <p key={`${entry.ts}-${index}`}>{entry.text}</p>
+            ))}
+          </div>
+        </div>
+        <div className="transcript-card">
+          <h2>Assistant</h2>
+          <div className="transcript-draft">{assistantDraft || '…'}</div>
+          <div className="transcript-history">
+            {assistantTranscripts.map((entry, index) => (
+              <p key={`${entry.ts}-${index}`}>{entry.text}</p>
+            ))}
+          </div>
+        </div>
+      </section>
+
       <section className="log">
         <h2>Event log</h2>
         <div className="log-entries">
-          {events.map((event) => (
-            <div key={event.ts} className="log-row">
+          {events.map((event, index) => (
+            <div key={`${event.ts}-${index}`} className="log-row">
               <span>{new Date(event.ts).toLocaleTimeString()}</span>
               <span>{event.message}</span>
             </div>

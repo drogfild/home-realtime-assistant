@@ -1,8 +1,9 @@
 import Router from '@koa/router';
 import axios from 'axios';
+import { z } from 'zod';
 import { Context } from 'koa';
 import { createLogger, redactObject, signHmac, ToolInvokeRequestSchema } from '@home/shared';
-import { createEphemeralToken } from './openai';
+import { createEphemeralToken, createRealtimeAnswerSdp } from './openai';
 import { Env } from './config';
 import { requireAuth, verifyInternalHmac } from './auth';
 
@@ -17,6 +18,27 @@ export function createRoutes(env: Env) {
   router.post('/api/realtime/token', requireAuth(env), async (ctx) => {
     const token = await createEphemeralToken(env);
     ctx.body = token;
+  });
+
+  const webrtcOfferSchema = z.object({
+    offerSdp: z.string().min(1),
+    clientSecret: z.string().min(1),
+  });
+
+  router.post('/api/realtime/webrtc', requireAuth(env), async (ctx) => {
+    const parseResult = webrtcOfferSchema.safeParse(ctx.request.body);
+    if (!parseResult.success) {
+      ctx.status = 400;
+      ctx.body = { error: 'invalid_payload', details: parseResult.error.flatten() };
+      return;
+    }
+    const { offerSdp, clientSecret } = parseResult.data;
+    const answerSdp = await createRealtimeAnswerSdp({
+      clientSecret,
+      offerSdp,
+      model: env.OPENAI_REALTIME_MODEL,
+    });
+    ctx.body = { answerSdp };
   });
 
   router.post('/api/tools/dispatch', requireAuth(env), verifyInternalHmac(env), async (ctx: Context) => {

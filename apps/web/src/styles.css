@@ -91,6 +91,45 @@ button:disabled {
 .pill-thinking { background: #eab308; color: #0f172a; }
 .pill-speaking { background: #22c55e; color: #0f172a; }
 
+.transcripts {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  margin-bottom: 1.5rem;
+}
+
+.transcript-card {
+  background: #0b1224;
+  border: 1px solid #1e293b;
+  border-radius: 14px;
+  padding: 1rem;
+}
+
+.transcript-card h2 {
+  margin-top: 0;
+}
+
+.transcript-draft {
+  min-height: 2.5rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 10px;
+  background: #0f172a;
+  border: 1px dashed #334155;
+  color: #e2e8f0;
+  margin-bottom: 0.75rem;
+}
+
+.transcript-history {
+  display: grid;
+  gap: 0.5rem;
+  font-size: 0.95rem;
+  color: #cbd5e1;
+}
+
+.transcript-history p {
+  margin: 0;
+}
+
 .log {
   background: #0b1224;
   border: 1px solid #1e293b;

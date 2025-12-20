@@ -14,14 +14,9 @@ export function createLogger(service: string) {
     },
     hooks: {
       logMethod(args, method) {
-        if (args.length === 1 && typeof args[0] === 'string') {
-          args[0] = redact(args[0]);
-        } else if (args.length > 1 && typeof args[0] === 'string') {
-          args[0] = redact(args[0]);
-          args = args.map((arg) => (typeof arg === 'string' ? redact(arg) : arg));
-        }
+        const redactedArgs = args.map((arg) => (typeof arg === 'string' ? redact(arg) : arg)) as typeof args;
         // eslint-disable-next-line prefer-spread
-        return method.apply(this, args as Parameters<typeof method>);
+        return method.apply(this, redactedArgs as Parameters<typeof method>);
       },
     },
   });
