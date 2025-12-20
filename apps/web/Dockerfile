@@ -1,7 +1,7 @@
 FROM node:20-alpine AS builder
 WORKDIR /app
 COPY package.json pnpm-workspace.yaml tsconfig.base.json ./
-COPY pnpm-lock.yaml ./pnpm-lock.yaml || true
+COPY pnpm-lock.yaml ./pnpm-lock.yaml
 COPY apps ./apps
 COPY packages ./packages
 RUN corepack enable && pnpm install --frozen-lockfile --ignore-scripts

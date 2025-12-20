@@ -1,8 +1,15 @@
-import { describe, expect, it } from 'vitest';
-import nock from 'nock';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createHttpFetchTool } from './httpFetch';
 
-const tool = createHttpFetchTool(['example.com']);
+const mockClient = {
+  get: vi.fn(),
+};
+
+const tool = createHttpFetchTool(['example.com'], mockClient);
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 describe('http_fetch tool', () => {
   it('rejects non-allowlisted host', async () => {
@@ -10,9 +17,9 @@ describe('http_fetch tool', () => {
   });
 
   it('returns data for allowlisted host', async () => {
-    const scope = nock('https://example.com').get('/').reply(200, { ok: true });
+    mockClient.get.mockResolvedValue({ status: 200, data: { ok: true } });
     const result = await tool.handler({ host: 'example.com', path: '/' });
     expect(result).toEqual({ status: 200, data: { ok: true } });
-    scope.done();
+    expect(mockClient.get).toHaveBeenCalledWith('https://example.com/', { timeout: 3_000 });
   });
 });

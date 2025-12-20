@@ -7,11 +7,23 @@ import dotenv from 'dotenv';
 import { createRoutes } from './routes';
 import { attachRequestIds } from './auth';
 import { loadConfig } from './config';
-import { createLogger } from '@home/shared';
+import { createLogger, ensureEnvVars } from '@home/shared';
 
 dotenv.config();
 
+async function ensureRequiredEnv() {
+  await ensureEnvVars([
+    { key: 'OPENAI_API_KEY', prompt: 'Enter your OpenAI API key', minLength: 1 },
+    { key: 'OPENAI_REALTIME_MODEL', prompt: 'OpenAI Realtime model', defaultValue: 'gpt-4o-realtime-preview' },
+    { key: 'AUTH_SHARED_SECRET', prompt: 'Shared secret for web clients (x-shared-secret)', minLength: 16, allowRandom: true },
+    { key: 'INTERNAL_HMAC_SECRET', prompt: 'Internal HMAC secret (must match tool-gateway)', minLength: 16, allowRandom: true },
+    { key: 'ORCHESTRATOR_BASE_URL', prompt: 'Orchestrator base URL (e.g. http://localhost:3001)', minLength: 1 },
+    { key: 'TOOL_GATEWAY_URL', prompt: 'Tool gateway URL (e.g. http://localhost:4001)', minLength: 1 },
+  ]);
+}
+
 async function bootstrap() {
+  await ensureRequiredEnv();
   const env = loadConfig();
   const logger = createLogger('orchestrator');
   const app = new Koa();

@@ -10,7 +10,7 @@ Jatkuvasti kuunteleva PWA-pohjainen puheassistentti, joka käyttää OpenAI Real
 
 ## Nopea startti docker-composella
 
-1. Kopioi `.env.example` jokaisesta sovelluksesta ja täytä arvot (vähintään `OPENAI_API_KEY`, `AUTH_SHARED_SECRET`, `INTERNAL_HMAC_SECRET`, `ALLOWLIST_HTTP_HOSTS`).
+1. Kopioi repo-juuren `.env.example` → `.env` ja täytä arvot (vähintään `OPENAI_API_KEY`, `AUTH_SHARED_SECRET`, `INTERNAL_HMAC_SECRET`, `ALLOWLIST_HTTP_HOSTS`). Samat arvot jaetaan konteille.
 2. Aja:
    ```bash
    docker compose -f infra/docker-compose.yml up --build
@@ -28,7 +28,7 @@ pnpm --filter @home/orchestrator dev   # portti 3001
 pnpm --filter @home/web dev            # portti 4173
 ```
 
-Lisää `.env`-tiedostot `.env.example`-pohjista. Kehityksessäkin vaaditaan `AUTH_SHARED_SECRET` ja `INTERNAL_HMAC_SECRET`.
+Lisää `.env`-tiedostot `.env.example`-pohjista kunkin sovelluksen kansioon (tai juureen jaa arvot). Jos pakolliset arvot puuttuvat käynnistyksen yhteydessä ja prosessi on TTY:ssä, sovellus kysyy arvot ja voi halutessasi arpoa uudet shared secretit. Kehityksessäkin `AUTH_SHARED_SECRET` ja `INTERNAL_HMAC_SECRET` ovat pakollisia ja niiden täytyy olla samat orchestratorin ja tool-gatewayn välillä.
 
 ## iOS PWA -ohje
 
@@ -57,7 +57,7 @@ Tool-gateway rekisteröi työkalut `apps/tool-gateway/src/tools/index.ts` -tiedo
 ## Saatavilla olevat esimerkkityökalut
 
 - `http_fetch`: GET vain `ALLOWLIST_HTTP_HOSTS`-listan hosteihin.
-- `home_assistant_sensor`: lukee Home Assistantin sensorin tilan (read-only).
+- `home_assistant_sensor`: lukee Home Assistantin sensorin tilan (read-only). Rekisteröidään vain, jos `HOME_ASSISTANT_URL` ja `HOME_ASSISTANT_TOKEN` on asetettu.
 - `note_writer`: tallentaa muistiinpanon paikalliseen SQLiteen kovakoodattuun sijaintiin.
 
 ## Testaus ja laadunvarmistus

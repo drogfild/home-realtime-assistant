@@ -4,17 +4,28 @@ import bodyParser from 'koa-bodyparser';
 import helmet from 'koa-helmet';
 import rateLimit from 'koa-ratelimit';
 import dotenv from 'dotenv';
-import { createLogger, redactObject, RequestContextSchema } from '@home/shared';
+import { createLogger, ensureEnvVars, redactObject, RequestContextSchema } from '@home/shared';
 import { loadConfig } from './config';
 import { verifyInternalHmac } from './auth';
 import { buildTools, resolveTool, validateArgs } from './tools';
 
 dotenv.config();
 
+async function ensureRequiredEnv() {
+  await ensureEnvVars([
+    { key: 'INTERNAL_HMAC_SECRET', prompt: 'Internal HMAC secret (must match orchestrator)', minLength: 16, allowRandom: true },
+  ]);
+}
+
 async function bootstrap() {
+  await ensureRequiredEnv();
   const env = loadConfig();
   const logger = createLogger('tool-gateway');
-  const tools = buildTools(env);
+  const tools = buildTools(env, {
+    onSkipTool(tool, reason) {
+      logger.info({ event: 'tool_disabled', tool, reason });
+    },
+  });
 
   const app = new Koa();
   const router = new Router();

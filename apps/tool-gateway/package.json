@@ -21,7 +21,8 @@
     "koa-helmet": "7.0.2",
     "koa-ratelimit": "5.0.1",
     "zod": "3.23.8",
-    "sqlite3": "5.1.7"
+    "sqlite3": "5.1.7",
+    "sqlite": "5.1.1"
   },
   "devDependencies": {
     "@types/koa": "2.13.12",
@@ -30,8 +31,6 @@
     "@types/koa-helmet": "6.0.7",
     "@types/node": "22.5.0",
     "@types/koa-ratelimit": "5.0.2",
-    "@types/nock": "13.3.3",
-    "nock": "13.5.0",
     "prettier": "3.2.5",
     "typescript": "5.4.5",
     "vitest": "1.6.0",
