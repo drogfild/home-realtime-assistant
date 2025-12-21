@@ -60,6 +60,7 @@ export default function App() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
+  const [activeResponseId, setActiveResponseId] = useState<string | null>(null);
   const audioTrackSeenRef = useRef(false);
 
   useEffect(() => {
@@ -227,6 +228,27 @@ export default function App() {
     try {
       parsed = JSON.parse(raw);
     } catch {
+      return;
+    }
+
+    const extractResponseId = (payload: { [key: string]: unknown }) => {
+      const response = payload.response as { id?: unknown } | undefined;
+      if (response && typeof response.id === 'string') return response.id;
+      if (typeof payload.response_id === 'string') return payload.response_id;
+      if (typeof payload.id === 'string') return payload.id;
+      return null;
+    };
+
+    if (parsed.type === 'response.created') {
+      const responseId = extractResponseId(parsed);
+      setActiveResponseId(responseId);
+      push(`Assistant response started${responseId ? ` (${responseId})` : ''}`);
+      return;
+    }
+
+    if (parsed.type === 'response.completed' || parsed.type === 'response.canceled' || parsed.type === 'response.error') {
+      setActiveResponseId(null);
+      push('Assistant response finished');
       return;
     }
 
@@ -405,6 +427,7 @@ export default function App() {
     rtcRef.current = null;
     dataChannelRef.current = null;
     sessionUpdateSentRef.current = false;
+    setActiveResponseId(null);
     localStreamRef.current?.getTracks().forEach((track) => track.stop());
     localStreamRef.current = null;
     remoteStreamRef.current?.getTracks().forEach((track) => track.stop());
@@ -421,7 +444,23 @@ export default function App() {
     push('Stopped listening');
   };
 
+  const interruptResponse = () => {
+    const dc = dataChannelRef.current;
+    if (!dc || dc.readyState !== 'open') {
+      push('Data channel not ready to interrupt response');
+      return;
+    }
+    const payload: Record<string, unknown> = { type: 'response.cancel' };
+    if (activeResponseId) {
+      payload.response_id = activeResponseId;
+    }
+    dc.send(JSON.stringify(payload));
+    push('Sent response.cancel to interrupt assistant');
+  };
+
   const toggleMute = () => setIsMuted((prev) => !prev);
+
+  const canInterrupt = Boolean(activeResponseId && dataChannelRef.current?.readyState === 'open');
 
   const handlePushToTalk = async () => {
     if (!pushToTalk) return;
@@ -450,6 +489,9 @@ export default function App() {
         </label>
         <button className="primary" disabled={connecting} onClick={status === 'idle' ? connect : stop}>
           {status === 'idle' ? 'Start listening' : 'Stop'}
+        </button>
+        <button disabled={!canInterrupt || connecting} onClick={interruptResponse}>
+          Interrupt response
         </button>
         <button onClick={toggleMute}>{isMuted ? 'Unmute' : 'Mute'}</button>
         <label className="toggle">
