@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 
 const ORCHESTRATOR_BASE_URL = import.meta.env.VITE_ORCHESTRATOR_BASE_URL as string;
@@ -41,9 +41,19 @@ export default function App() {
   const [assistantDraft, setAssistantDraft] = useState('');
   const [userTranscripts, setUserTranscripts] = useState<TranscriptItem[]>([]);
   const [assistantTranscripts, setAssistantTranscripts] = useState<TranscriptItem[]>([]);
+  const [showSettings, setShowSettings] = useState(false);
+  const [audioEnhancements, setAudioEnhancements] = useState({
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+  });
+  const [availableMics, setAvailableMics] = useState<MediaDeviceInfo[]>([]);
+  const [selectedMicId, setSelectedMicId] = useState('');
+  const [loadingDevices, setLoadingDevices] = useState(false);
   const userDraftRef = useRef('');
   const assistantDraftRef = useRef('');
   const sessionUpdateSentRef = useRef(false);
+  const lastAppliedAudioSettingsRef = useRef(JSON.stringify(audioEnhancements));
   const { events, push } = useEventLog();
   const rtcRef = useRef<RTCPeerConnection | null>(null);
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
@@ -78,6 +88,31 @@ export default function App() {
     setAssistantDraft(next);
   };
 
+  const refreshDeviceList = useCallback(async () => {
+    if (!navigator.mediaDevices?.enumerateDevices) {
+      push('enumerateDevices is unavailable in this browser.');
+      return;
+    }
+    try {
+      setLoadingDevices(true);
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      setAvailableMics(devices.filter((device) => device.kind === 'audioinput'));
+    } catch (error) {
+      console.error(error);
+      push('Failed to list microphones');
+    } finally {
+      setLoadingDevices(false);
+    }
+  }, [push]);
+
+  useEffect(() => {
+    refreshDeviceList();
+    if (!navigator.mediaDevices?.addEventListener) return;
+    const handleDeviceChange = () => refreshDeviceList();
+    navigator.mediaDevices.addEventListener('devicechange', handleDeviceChange);
+    return () => navigator.mediaDevices?.removeEventListener('devicechange', handleDeviceChange);
+  }, [refreshDeviceList]);
+
   const finalizeUserDraft = (text?: string) => {
     const finalText = (text ?? userDraftRef.current).trim();
     if (!finalText) return;
@@ -98,6 +133,94 @@ export default function App() {
     assistantDraftRef.current = '';
     setAssistantDraft('');
   };
+
+  const buildAudioConstraints = useCallback(
+    (deviceId?: string) => ({
+      audio: {
+        deviceId: deviceId ?? (selectedMicId || undefined),
+        echoCancellation: audioEnhancements.echoCancellation,
+        noiseSuppression: audioEnhancements.noiseSuppression,
+        autoGainControl: audioEnhancements.autoGainControl,
+      },
+    }),
+    [audioEnhancements, selectedMicId]
+  );
+
+  const createLocalStream = useCallback(
+    async (deviceId?: string) => {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error('getUserMedia is unavailable (requires HTTPS or localhost).');
+      }
+      const constraints = buildAudioConstraints(deviceId);
+      return navigator.mediaDevices.getUserMedia(constraints);
+    },
+    [buildAudioConstraints]
+  );
+
+  const applyNewLocalStream = useCallback(
+    async (deviceId?: string) => {
+      const rtc = rtcRef.current;
+      const media = await createLocalStream(deviceId);
+      media.getAudioTracks().forEach((track) => {
+        track.enabled = !isMuted;
+      });
+      if (rtc) {
+        const [newTrack] = media.getAudioTracks();
+        const audioSender = rtc.getSenders().find((sender) => sender.track?.kind === 'audio');
+        if (audioSender && newTrack) {
+          await audioSender.replaceTrack(newTrack);
+        } else if (newTrack) {
+          rtc.addTrack(newTrack, media);
+        }
+      }
+      localStreamRef.current?.getTracks().forEach((track) => track.stop());
+      localStreamRef.current = media;
+    },
+    [createLocalStream, isMuted]
+  );
+
+  const audioSettingsKey = JSON.stringify(audioEnhancements);
+
+  useEffect(() => {
+    if (lastAppliedAudioSettingsRef.current === audioSettingsKey) return;
+    if (status === 'idle' || !rtcRef.current) {
+      lastAppliedAudioSettingsRef.current = audioSettingsKey;
+      return;
+    }
+    lastAppliedAudioSettingsRef.current = audioSettingsKey;
+    let cancelled = false;
+    (async () => {
+      try {
+        await applyNewLocalStream();
+        if (!cancelled) {
+          push('Applied updated audio settings');
+        }
+      } catch (error) {
+        console.error(error);
+        if (!cancelled) {
+          push('Failed to apply audio settings');
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [applyNewLocalStream, audioSettingsKey, push, status]);
+
+  const handleMicChange = useCallback(
+    async (deviceId: string) => {
+      setSelectedMicId(deviceId);
+      if (status === 'idle') return;
+      try {
+        await applyNewLocalStream(deviceId || undefined);
+        push('Switched microphone');
+      } catch (error) {
+        console.error(error);
+        push('Failed to switch microphone');
+      }
+    },
+    [applyNewLocalStream, push, status]
+  );
 
   const handleRealtimeEvent = (raw: string) => {
     let parsed: { type?: string; [key: string]: unknown };
@@ -193,10 +316,7 @@ export default function App() {
             });
           }
 
-          if (!navigator.mediaDevices?.getUserMedia) {
-            throw new Error('getUserMedia is unavailable (requires HTTPS or localhost).');
-          }
-          const media = await navigator.mediaDevices.getUserMedia({ audio: true });
+          const media = await createLocalStream();
           localStreamRef.current = media;
           media.getAudioTracks().forEach((track) => {
             track.enabled = !isMuted;
@@ -269,15 +389,15 @@ export default function App() {
           await rtc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
           push('Applied SDP answer');
           setStatus('listening');
-        } catch (error) {
-          console.error(error);
-          push('Failed to start listening');
-          setStatus('idle');
-        } finally {
-          setConnecting(false);
-        }
-      },
-    [isMuted, push, sharedSecret]
+      } catch (error) {
+        console.error(error);
+        push('Failed to start listening');
+        setStatus('idle');
+      } finally {
+        setConnecting(false);
+      }
+    },
+    [createLocalStream, isMuted, push, sharedSecret]
   );
 
   const stop = () => {
@@ -341,7 +461,63 @@ export default function App() {
             Hold to Talk
           </button>
         )}
+        <button onClick={() => setShowSettings((prev) => !prev)}>{showSettings ? 'Hide settings' : 'Settings'}</button>
       </section>
+
+      {showSettings && (
+        <section className="settings">
+          <div className="settings-header">
+            <h2>Audio settings</h2>
+            <button onClick={refreshDeviceList} disabled={loadingDevices}>
+              {loadingDevices ? 'Refreshing…' : 'Refresh devices'}
+            </button>
+          </div>
+          <div className="settings-grid">
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={audioEnhancements.echoCancellation}
+                onChange={(e) =>
+                  setAudioEnhancements((prev) => ({ ...prev, echoCancellation: e.target.checked }))
+                }
+              />
+              Echo cancellation
+            </label>
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={audioEnhancements.noiseSuppression}
+                onChange={(e) =>
+                  setAudioEnhancements((prev) => ({ ...prev, noiseSuppression: e.target.checked }))
+                }
+              />
+              Noise suppression
+            </label>
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={audioEnhancements.autoGainControl}
+                onChange={(e) =>
+                  setAudioEnhancements((prev) => ({ ...prev, autoGainControl: e.target.checked }))
+                }
+              />
+              Automatic gain control
+            </label>
+          </div>
+          <label className="device-picker">
+            Microphone
+            <select value={selectedMicId} onChange={(e) => void handleMicChange(e.target.value)}>
+              <option value="">System default</option>
+              {availableMics.map((device) => (
+                <option key={device.deviceId} value={device.deviceId}>
+                  {device.label || `Microphone (${device.deviceId.slice(0, 6)})`}
+                </option>
+              ))}
+            </select>
+            <p className="hint">Grant microphone permission to see device names.</p>
+          </label>
+        </section>
+      )}
 
       <section className="status">
         <div className={`pill pill-${status}`}>{status.toUpperCase()}</div>
