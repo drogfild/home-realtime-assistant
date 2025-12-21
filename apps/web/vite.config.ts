@@ -13,9 +13,19 @@ export default defineConfig({
   server: {
     port: 4173,
     host: true,
-    https: {
-      key: fs.readFileSync(path.resolve(__dirname, '../../infra/dev-certs/dev-key.pem')),
-      cert: fs.readFileSync(path.resolve(__dirname, '../../infra/dev-certs/dev-cert.pem')),
-    },
+    https: (() => {
+      const certsDir = path.resolve(__dirname, '../../infra/dev-certs');
+      const keyPath = path.join(certsDir, 'dev-key.pem');
+      const certPath = path.join(certsDir, 'dev-cert.pem');
+
+      if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
+        return {
+          key: fs.readFileSync(keyPath),
+          cert: fs.readFileSync(certPath),
+        };
+      }
+
+      return undefined;
+    })(),
   },
 });
