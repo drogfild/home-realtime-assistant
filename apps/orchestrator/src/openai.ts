@@ -55,7 +55,7 @@ async function getToolList(env: Env) {
   }
 }
 
-export async function createEphemeralToken(env: Env) {
+export async function createEphemeralToken(env: Env, options?: { enableTranscription?: boolean }) {
   const url = 'https://api.openai.com/v1/realtime/sessions';
   const tools = await getToolList(env);
   const toolDefinitions = tools.map((tool) => ({
@@ -63,6 +63,7 @@ export async function createEphemeralToken(env: Env) {
     description: tool.description ?? '',
     parameters: tool.parameters ?? { type: 'object', properties: {}, additionalProperties: false },
   }));
+  const enableTranscription = options?.enableTranscription ?? true;
   const payload = {
     model: env.OPENAI_REALTIME_MODEL,
     modalities: ['audio', 'text'],
@@ -75,10 +76,14 @@ export async function createEphemeralToken(env: Env) {
       'Do not expose secrets or attempt unknown commands.',
       'All tool calls are audited.',
     ].join(' '),
-    input_audio_transcription: {
-      model: 'gpt-4o-mini-transcribe',
-      language: 'fi',
-    },
+    ...(enableTranscription
+      ? {
+          input_audio_transcription: {
+            model: 'gpt-4o-mini-transcribe',
+            language: 'fi',
+          },
+        }
+      : {}),
     tools: toolDefinitions,
     tool_choice: 'auto',
   };

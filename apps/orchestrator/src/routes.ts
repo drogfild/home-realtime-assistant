@@ -16,7 +16,18 @@ export function createRoutes(env: Env) {
   });
 
   router.post('/api/realtime/token', requireAuth(env), async (ctx) => {
-    const token = await createEphemeralToken(env);
+    const tokenRequestSchema = z.object({
+      enableTranscription: z.boolean().optional(),
+    });
+    const parseResult = tokenRequestSchema.safeParse(ctx.request.body ?? {});
+    if (!parseResult.success) {
+      ctx.status = 400;
+      ctx.body = { error: 'invalid_payload', details: parseResult.error.flatten() };
+      return;
+    }
+    const token = await createEphemeralToken(env, {
+      enableTranscription: parseResult.data.enableTranscription,
+    });
     ctx.body = token;
   });
 

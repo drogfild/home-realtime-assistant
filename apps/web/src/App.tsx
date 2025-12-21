@@ -15,9 +15,13 @@ function useEventLog() {
   return { events, push };
 }
 
-async function fetchToken(sharedSecret: string) {
+async function fetchToken(sharedSecret: string, enableTranscription: boolean) {
   const headers: Record<string, string> = { 'x-shared-secret': sharedSecret };
-  const response = await axios.post(`${ORCHESTRATOR_BASE_URL}/api/realtime/token`, {}, { headers });
+  const response = await axios.post(
+    `${ORCHESTRATOR_BASE_URL}/api/realtime/token`,
+    { enableTranscription },
+    { headers },
+  );
   return response.data;
 }
 
@@ -37,6 +41,9 @@ export default function App() {
   const [isMuted, setIsMuted] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [sharedSecret, setSharedSecret] = useState<string>(() => localStorage.getItem('sharedSecret') || '');
+  const [enableTranscription, setEnableTranscription] = useState<boolean>(
+    () => localStorage.getItem('enableTranscription') !== 'false',
+  );
   const [userDraft, setUserDraft] = useState('');
   const [assistantDraft, setAssistantDraft] = useState('');
   const [userTranscripts, setUserTranscripts] = useState<TranscriptItem[]>([]);
@@ -298,7 +305,7 @@ export default function App() {
             return;
           }
           localStorage.setItem('sharedSecret', sharedSecret);
-          const token = await fetchToken(sharedSecret);
+          const token = await fetchToken(sharedSecret, enableTranscription);
           push('Fetched ephemeral token');
           const rtc = new RTCPeerConnection({
             iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
@@ -333,6 +340,11 @@ export default function App() {
           const sendSessionUpdate = () => {
             if (sessionUpdateSentRef.current) return;
             if (dc.readyState !== 'open') return;
+            if (!enableTranscription) {
+              sessionUpdateSentRef.current = true;
+              push('Skipped session.update (transcription disabled)');
+              return;
+            }
             const update = {
               type: 'session.update',
               session: {
@@ -389,15 +401,15 @@ export default function App() {
           await rtc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
           push('Applied SDP answer');
           setStatus('listening');
-      } catch (error) {
-        console.error(error);
-        push('Failed to start listening');
-        setStatus('idle');
-      } finally {
-        setConnecting(false);
-      }
-    },
-    [createLocalStream, isMuted, push, sharedSecret]
+        } catch (error) {
+          console.error(error);
+          push('Failed to start listening');
+          setStatus('idle');
+        } finally {
+          setConnecting(false);
+        }
+      },
+    [createLocalStream, enableTranscription, isMuted, push, sharedSecret]
   );
 
   const stop = () => {
@@ -422,6 +434,10 @@ export default function App() {
   };
 
   const toggleMute = () => setIsMuted((prev) => !prev);
+  const toggleTranscription = (enabled: boolean) => {
+    setEnableTranscription(enabled);
+    localStorage.setItem('enableTranscription', enabled ? 'true' : 'false');
+  };
 
   const handlePushToTalk = async () => {
     if (!pushToTalk) return;
@@ -448,10 +464,24 @@ export default function App() {
             placeholder="Required to fetch token"
           />
         </label>
-        <button className="primary" disabled={connecting} onClick={status === 'idle' ? connect : stop}>
+        <button
+          className="primary listen-button"
+          data-state={status}
+          disabled={connecting}
+          onClick={status === 'idle' ? connect : stop}
+        >
           {status === 'idle' ? 'Start listening' : 'Stop'}
         </button>
         <button onClick={toggleMute}>{isMuted ? 'Unmute' : 'Mute'}</button>
+        <label className="toggle">
+          <input
+            type="checkbox"
+            checked={enableTranscription}
+            onChange={(e) => toggleTranscription(e.target.checked)}
+            disabled={connecting || status !== 'idle'}
+          />
+          Transcribe speech
+        </label>
         <label className="toggle">
           <input type="checkbox" checked={pushToTalk} onChange={(e) => setPushToTalk(e.target.checked)} />
           Push-to-talk
