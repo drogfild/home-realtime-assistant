@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { createLogger } from '@home/shared';
+import { createLogger, signHmac } from '@home/shared';
 import { Env } from './config';
 
 export type EphemeralTokenResponse = {
@@ -11,8 +11,58 @@ export type EphemeralTokenResponse = {
 
 const logger = createLogger('orchestrator');
 
+type ToolListResponse = {
+  tools?: Array<{
+    name: string;
+    description?: string;
+    parameters?: Record<string, unknown>;
+  }>;
+};
+
+const TOOL_CACHE_TTL_MS = 60_000;
+let cachedTools: ToolListResponse['tools'] | null = null;
+let cachedAt = 0;
+
+async function fetchToolList(env: Env) {
+  const body = JSON.stringify({});
+  const signature = signHmac({ secret: env.INTERNAL_HMAC_SECRET, body });
+  const response = await axios.get<ToolListResponse>(`${env.TOOL_GATEWAY_URL}/v1/tools/list`, {
+    headers: {
+      'x-internal-signature': signature.signature,
+      'x-internal-timestamp': signature.timestamp,
+    },
+    timeout: 3_000,
+  });
+  return response.data.tools ?? [];
+}
+
+async function getToolList(env: Env) {
+  const now = Date.now();
+  const cacheFresh = cachedTools && now - cachedAt < TOOL_CACHE_TTL_MS;
+  if (cacheFresh) return cachedTools ?? [];
+  try {
+    const tools = await fetchToolList(env);
+    cachedTools = tools;
+    cachedAt = now;
+    return tools;
+  } catch (error) {
+    logger.warn({ event: 'tool_list_fetch_failed', error: error instanceof Error ? error.message : error });
+    if (cachedTools) {
+      logger.info({ event: 'tool_list_cache_fallback', age_ms: now - cachedAt });
+      return cachedTools;
+    }
+    return [];
+  }
+}
+
 export async function createEphemeralToken(env: Env) {
   const url = 'https://api.openai.com/v1/realtime/sessions';
+  const tools = await getToolList(env);
+  const toolDefinitions = tools.map((tool) => ({
+    name: tool.name,
+    description: tool.description ?? '',
+    parameters: tool.parameters ?? { type: 'object', properties: {}, additionalProperties: false },
+  }));
   const payload = {
     model: env.OPENAI_REALTIME_MODEL,
     modalities: ['audio', 'text'],
@@ -29,6 +79,7 @@ export async function createEphemeralToken(env: Env) {
       model: 'gpt-4o-mini-transcribe',
       language: 'fi',
     },
+    tools: toolDefinitions,
     tool_choice: 'auto',
   };
 

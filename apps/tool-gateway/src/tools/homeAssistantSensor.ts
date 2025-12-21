@@ -10,6 +10,14 @@ export function createHomeAssistantTool(baseUrl?: string, token?: string): ToolD
   return {
     name: 'home_assistant_sensor',
     description: 'Reads a sensor value from Home Assistant (read-only)',
+    parameters: {
+      type: 'object',
+      properties: {
+        entity_id: { type: 'string', description: 'Home Assistant entity id' },
+      },
+      required: ['entity_id'],
+      additionalProperties: false,
+    },
     schema: homeAssistantSchema,
     async handler(rawArgs) {
       if (!baseUrl || !token) {

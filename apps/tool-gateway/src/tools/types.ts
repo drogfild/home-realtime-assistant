@@ -7,4 +7,10 @@ export type ToolDefinition = {
   schema: z.ZodTypeAny;
   handler: ToolHandler;
   description?: string;
+  parameters?: {
+    type: 'object';
+    properties: Record<string, unknown>;
+    required?: string[];
+    additionalProperties?: boolean;
+  };
 };

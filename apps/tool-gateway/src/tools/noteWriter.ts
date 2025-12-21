@@ -27,6 +27,15 @@ export function createNoteWriterTool(): ToolDefinition {
   return {
     name: 'note_writer',
     description: 'Stores a short note in a local sqlite database',
+    parameters: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'Short note title' },
+        content: { type: 'string', description: 'Note body text' },
+      },
+      required: ['title', 'content'],
+      additionalProperties: false,
+    },
     schema: noteSchema,
     async handler(rawArgs) {
       const parsed = noteSchema.safeParse(rawArgs);

@@ -87,6 +87,20 @@ async function bootstrap() {
     }
   });
 
+  router.get('/v1/tools/list', verifyInternalHmac(env), async (ctx) => {
+    ctx.body = {
+      tools: tools.map((tool) => ({
+        name: tool.name,
+        description: tool.description ?? '',
+        parameters: tool.parameters ?? {
+          type: 'object',
+          properties: {},
+          additionalProperties: false,
+        },
+      })),
+    };
+  });
+
   app.use(router.routes());
   app.use(router.allowedMethods());
 

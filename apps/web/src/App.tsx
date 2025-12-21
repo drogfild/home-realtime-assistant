@@ -47,12 +47,24 @@ export default function App() {
   const { events, push } = useEventLog();
   const rtcRef = useRef<RTCPeerConnection | null>(null);
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const remoteStreamRef = useRef<MediaStream | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const audioTrackSeenRef = useRef(false);
 
   useEffect(() => {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/service-worker.js').catch(() => {});
     }
   }, []);
+
+  useEffect(() => {
+    const stream = localStreamRef.current;
+    if (!stream) return;
+    stream.getAudioTracks().forEach((track) => {
+      track.enabled = !isMuted;
+    });
+  }, [isMuted]);
 
   const appendUserDraft = (delta: string) => {
     const next = `${userDraftRef.current}${delta}`;
@@ -169,11 +181,26 @@ export default function App() {
             iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
           });
           rtcRef.current = rtc;
+          const audioElement = audioRef.current;
+          if (audioElement) {
+            const remoteStream = remoteStreamRef.current ?? new MediaStream();
+            remoteStreamRef.current = remoteStream;
+            if (audioElement.srcObject !== remoteStream) {
+              audioElement.srcObject = remoteStream;
+            }
+            audioElement.play().catch(() => {
+              push('Audio playback blocked. Tap to allow audio.');
+            });
+          }
 
           if (!navigator.mediaDevices?.getUserMedia) {
             throw new Error('getUserMedia is unavailable (requires HTTPS or localhost).');
           }
           const media = await navigator.mediaDevices.getUserMedia({ audio: true });
+          localStreamRef.current = media;
+          media.getAudioTracks().forEach((track) => {
+            track.enabled = !isMuted;
+          });
           media.getTracks().forEach((track) => rtc.addTrack(track, media));
 
           const dc = rtc.createDataChannel('events');
@@ -205,6 +232,30 @@ export default function App() {
             }
           };
 
+          rtc.ontrack = (event) => {
+            const audioElement = audioRef.current;
+            if (!audioElement) return;
+            if (event.streams && event.streams[0]) {
+              if (audioElement.srcObject !== event.streams[0]) {
+                audioElement.srcObject = event.streams[0];
+              }
+            } else {
+              const remoteStream = remoteStreamRef.current ?? new MediaStream();
+              remoteStreamRef.current = remoteStream;
+              remoteStream.addTrack(event.track);
+              if (audioElement.srcObject !== remoteStream) {
+                audioElement.srcObject = remoteStream;
+              }
+            }
+            if (!audioTrackSeenRef.current) {
+              audioTrackSeenRef.current = true;
+              push('Received remote audio');
+            }
+            audioElement.play().catch(() => {
+              push('Audio playback blocked. Tap to allow audio.');
+            });
+          };
+
           const offer = await rtc.createOffer();
           await rtc.setLocalDescription(offer);
 
@@ -226,7 +277,7 @@ export default function App() {
           setConnecting(false);
         }
       },
-    [push]
+    [isMuted, push, sharedSecret]
   );
 
   const stop = () => {
@@ -234,6 +285,14 @@ export default function App() {
     rtcRef.current = null;
     dataChannelRef.current = null;
     sessionUpdateSentRef.current = false;
+    localStreamRef.current?.getTracks().forEach((track) => track.stop());
+    localStreamRef.current = null;
+    remoteStreamRef.current?.getTracks().forEach((track) => track.stop());
+    remoteStreamRef.current = null;
+    if (audioRef.current) {
+      audioRef.current.srcObject = null;
+    }
+    audioTrackSeenRef.current = false;
     userDraftRef.current = '';
     assistantDraftRef.current = '';
     setUserDraft('');
@@ -253,6 +312,7 @@ export default function App() {
 
   return (
     <main className="app">
+      <audio ref={audioRef} autoPlay playsInline />
       <header>
         <h1>Jaska Realtime Assistant</h1>
         <p>Optimized for iOS Safari / PWA. Start listening to begin voice control.</p>

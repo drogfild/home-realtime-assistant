@@ -18,6 +18,15 @@ export function createHttpFetchTool(allowlist: string[], client: HttpClient = ht
   return {
     name: 'http_fetch',
     description: 'Performs a GET request to an allowlisted host',
+    parameters: {
+      type: 'object',
+      properties: {
+        host: { type: 'string', description: 'Allowlisted host name, e.g. example.com' },
+        path: { type: 'string', description: 'Path to request, defaults to /' },
+      },
+      required: ['host'],
+      additionalProperties: false,
+    },
     schema: httpFetchSchema,
     async handler(rawArgs) {
       const parse = httpFetchSchema.safeParse(rawArgs);

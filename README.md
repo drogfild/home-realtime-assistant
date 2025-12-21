@@ -36,7 +36,7 @@ pnpm --filter @home/orchestrator dev   # portti 3001
 pnpm --filter @home/web dev            # portti 4173
 ```
 
-Lisää `.env`-tiedostot `.env.example`-pohjista kunkin sovelluksen kansioon (tai juureen jaa arvot). Jos pakolliset arvot puuttuvat käynnistyksen yhteydessä ja prosessi on TTY:ssä, sovellus kysyy arvot ja voi halutessasi arpoa uudet shared secretit. Kehityksessäkin `AUTH_SHARED_SECRET` ja `INTERNAL_HMAC_SECRET` ovat pakollisia ja niiden täytyy olla samat orchestratorin ja tool-gatewayn välillä.
+Lisää `.env`-tiedostot `.env.example`-pohjista kunkin sovelluksen kansioon (tai juureen jaa arvot). `pnpm dev` lukee `.env`-tiedostot automaattisesti (dotenv), joten erillistä `source`-komentoa ei tarvita käynnistykseen. Jos pakolliset arvot puuttuvat käynnistyksen yhteydessä ja prosessi on TTY:ssä, sovellus kysyy arvot ja voi halutessasi arpoa uudet shared secretit. Kehityksessäkin `AUTH_SHARED_SECRET` ja `INTERNAL_HMAC_SECRET` ovat pakollisia ja niiden täytyy olla samat orchestratorin ja tool-gatewayn välillä.
 
 ## iOS PWA -ohje
 
@@ -60,13 +60,28 @@ Lisää `.env`-tiedostot `.env.example`-pohjista kunkin sovelluksen kansioon (ta
 
 ## Työkalujen allowlist ja uudet työkalut
 
-Tool-gateway rekisteröi työkalut `apps/tool-gateway/src/tools/index.ts` -tiedostossa. Jokainen työkalu palauttaa `{ name, schema, handler }`. Luo uusi moduuli `tools/`-hakemistoon, lisää skeema ja handler, ja lisää se `buildTools`-funktioon. Vain tunnistetut työkalut hyväksytään.
+Tool-gateway rekisteröi työkalut `apps/tool-gateway/src/tools/index.ts` -tiedostossa. Jokainen työkalu palauttaa `{ name, schema, handler, parameters }` (parameters on OpenAI-työkaluja varten). Luo uusi moduuli `tools/`-hakemistoon, lisää skeema ja handler, ja lisää se `buildTools`-funktioon. Vain tunnistetut työkalut hyväksytään.
 
 ## Saatavilla olevat esimerkkityökalut
 
 - `http_fetch`: GET vain `ALLOWLIST_HTTP_HOSTS`-listan hosteihin.
 - `home_assistant_sensor`: lukee Home Assistantin sensorin tilan (read-only). Rekisteröidään vain, jos `HOME_ASSISTANT_URL` ja `HOME_ASSISTANT_TOKEN` on asetettu.
 - `note_writer`: tallentaa muistiinpanon paikalliseen SQLiteen kovakoodattuun sijaintiin.
+- `router_reachable`: pingaa kerran oletusreitittimen (`192.168.1.1`).
+- `n8n_webhook`: kutsuu konfiguroitua n8n-webhookia (`N8N_WEBHOOK_URL`).
+
+## Työkalut konfiguraatiotiedostosta (YAML)
+
+Voit lisätä webhook-työkaluja ilman koodia YAML-tiedostolla ja asettaa polun `TOOL_CONFIG_PATH`-muuttujaan (esim. `apps/tool-gateway/tools.yaml`). Muoto:
+
+```yaml
+tools:
+  - name: custom_webhook
+    description: Kuvaus työkalusta
+    url: https://n8n.example.com/webhook/your-webhook-id
+    headers:
+      Authorization: "Bearer CHANGE_ME"
+```
 
 ## Testaus ja laadunvarmistus
 
@@ -86,6 +101,3 @@ Tool-gateway rekisteröi työkalut `apps/tool-gateway/src/tools/index.ts` -tiedo
 2. Lisää työkalu `buildTools`-funktioon `index.ts`:ssa.
 3. Päivitä tarvittaessa `ALLOWLIST_HTTP_HOSTS` tai muut ympäristömuuttujat `.env`-tiedostoon.
 4. Lisää testit `src/tools/*.test.ts`.
-
-
-test

@@ -12,6 +12,14 @@ const EnvSchema = z.object({
     (value) => (value === '' ? undefined : value),
     z.string().optional(),
   ),
+  N8N_WEBHOOK_URL: z.preprocess(
+    (value) => (value === '' ? undefined : value),
+    z.string().url().optional(),
+  ),
+  TOOL_CONFIG_PATH: z.preprocess(
+    (value) => (value === '' ? undefined : value),
+    z.string().optional(),
+  ),
   ALLOWLIST_HTTP_HOSTS: z.string().default(''),
   LOG_LEVEL: z.string().default('info'),
 });
