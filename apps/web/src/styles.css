@@ -67,6 +67,50 @@ button:disabled {
   cursor: not-allowed;
 }
 
+.settings {
+  background: #0b1224;
+  border: 1px solid #1e293b;
+  border-radius: 14px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.5rem;
+}
+
+.device-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  color: #cbd5e1;
+}
+
+.device-picker select {
+  background: #0b1224;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  color: #e2e8f0;
+  padding: 0.5rem 0.75rem;
+  min-width: 220px;
+}
+
+.hint {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #94a3b8;
+}
+
 .toggle {
   display: inline-flex;
   align-items: center;
