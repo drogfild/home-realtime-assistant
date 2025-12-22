@@ -2,6 +2,7 @@
   "name": "home-realtime-assistant",
   "private": true,
   "version": "0.1.0",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "packageManager": "pnpm@9.15.0",
   "scripts": {
     "lint": "pnpm -r lint",

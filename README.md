@@ -101,3 +101,13 @@ tools:
 2. Lisää työkalu `buildTools`-funktioon `index.ts`:ssa.
 3. Päivitä tarvittaessa `ALLOWLIST_HTTP_HOSTS` tai muut ympäristömuuttujat `.env`-tiedostoon.
 4. Lisää testit `src/tools/*.test.ts`.
+
+## Lisenssi
+
+Tämä projekti on lisensoitu PolyForm Noncommercial 1.0.0 -lisenssillä:
+
+- Yksityinen ja ei-kaupallinen käyttö on sallittu (esim. oma kotikäyttö).
+- Kaupallinen käyttö tai yrityskäyttö on kielletty ilman erillistä lupaa.
+- Jos jaat koodia eteenpäin, lisenssi pitää säilyttää mukana.
+
+Katso tarkat ehdot tiedostosta `LICENSE`.

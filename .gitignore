@@ -14,3 +14,5 @@ coverage
 .cache
 apps/tool-gateway/data
 infra/dev-certs
+infra/cloudflared-config*.yml
+.cloudflared
