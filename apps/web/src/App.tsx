@@ -3,15 +3,37 @@ import axios from 'axios';
 
 const ORCHESTRATOR_BASE_URL = import.meta.env.VITE_ORCHESTRATOR_BASE_URL as string;
 const TRANSCRIBE_MODEL = 'gpt-4o-mini-transcribe';
+const PRICE_INPUT_USD_PER_1M = Number.parseFloat(import.meta.env.VITE_PRICE_INPUT_USD_PER_1M ?? '0');
+const PRICE_OUTPUT_USD_PER_1M = Number.parseFloat(import.meta.env.VITE_PRICE_OUTPUT_USD_PER_1M ?? '0');
+const EUR_PER_USD = Number.parseFloat(import.meta.env.VITE_EUR_PER_USD ?? '1');
 
 type Status = 'idle' | 'listening' | 'thinking' | 'speaking';
 
 type EventLogItem = { ts: number; message: string };
 type TranscriptItem = { ts: number; text: string };
+type UsageSnapshot = {
+  input_tokens?: number;
+  output_tokens?: number;
+  total_tokens?: number;
+  input_token_details?: { text_tokens?: number; audio_tokens?: number };
+  output_token_details?: { text_tokens?: number; audio_tokens?: number };
+};
+
+const EMPTY_USAGE = {
+  inputTokens: 0,
+  outputTokens: 0,
+  totalTokens: 0,
+  inputTextTokens: 0,
+  outputTextTokens: 0,
+  inputAudioTokens: 0,
+  outputAudioTokens: 0,
+};
 
 function useEventLog() {
   const [events, setEvents] = useState<EventLogItem[]>([]);
-  const push = (message: string) => setEvents((prev) => [...prev.slice(-200), { ts: Date.now(), message }]);
+  const push = useCallback((message: string) => {
+    setEvents((prev) => [...prev.slice(-200), { ts: Date.now(), message }]);
+  }, []);
   return { events, push };
 }
 
@@ -49,6 +71,8 @@ export default function App() {
   const [userTranscripts, setUserTranscripts] = useState<TranscriptItem[]>([]);
   const [assistantTranscripts, setAssistantTranscripts] = useState<TranscriptItem[]>([]);
   const [showSettings, setShowSettings] = useState(false);
+  const [showLog, setShowLog] = useState(false);
+  const [usage, setUsage] = useState(() => ({ ...EMPTY_USAGE }));
   const [audioEnhancements, setAudioEnhancements] = useState({
     echoCancellation: true,
     noiseSuppression: true,
@@ -69,6 +93,17 @@ export default function App() {
   const localStreamRef = useRef<MediaStream | null>(null);
   const [activeResponseId, setActiveResponseId] = useState<string | null>(null);
   const audioTrackSeenRef = useRef(false);
+  const countedUsageRef = useRef<Set<string>>(new Set());
+  const tokenFormatter = useMemo(() => new Intl.NumberFormat('fi-FI'), []);
+  const eurFormatter = useMemo(
+    () =>
+      new Intl.NumberFormat('fi-FI', {
+        style: 'currency',
+        currency: 'EUR',
+        maximumFractionDigits: 4,
+      }),
+    []
+  );
 
   useEffect(() => {
     if ('serviceWorker' in navigator) {
@@ -112,6 +147,11 @@ export default function App() {
       setLoadingDevices(false);
     }
   }, [push]);
+
+  const resetUsage = useCallback(() => {
+    setUsage({ ...EMPTY_USAGE });
+    countedUsageRef.current.clear();
+  }, []);
 
   useEffect(() => {
     refreshDeviceList();
@@ -230,6 +270,37 @@ export default function App() {
     [applyNewLocalStream, push, status]
   );
 
+  const recordUsage = (payload: { [key: string]: unknown }) => {
+    const response = payload.response as { id?: unknown; usage?: UsageSnapshot } | undefined;
+    const usageSnapshot = (response?.usage ?? (payload.usage as UsageSnapshot | undefined)) ?? null;
+    if (!usageSnapshot || typeof usageSnapshot !== 'object') return;
+
+    const responseId = response?.id ?? payload.response_id ?? payload.id;
+    const usageKey = typeof responseId === 'string' ? responseId : null;
+    if (usageKey) {
+      if (countedUsageRef.current.has(usageKey)) return;
+      countedUsageRef.current.add(usageKey);
+    }
+
+    const inputTokens = usageSnapshot.input_tokens ?? 0;
+    const outputTokens = usageSnapshot.output_tokens ?? 0;
+    const totalTokens = usageSnapshot.total_tokens ?? inputTokens + outputTokens;
+    const inputTextTokens = usageSnapshot.input_token_details?.text_tokens ?? 0;
+    const outputTextTokens = usageSnapshot.output_token_details?.text_tokens ?? 0;
+    const inputAudioTokens = usageSnapshot.input_token_details?.audio_tokens ?? 0;
+    const outputAudioTokens = usageSnapshot.output_token_details?.audio_tokens ?? 0;
+
+    setUsage((prev) => ({
+      inputTokens: prev.inputTokens + inputTokens,
+      outputTokens: prev.outputTokens + outputTokens,
+      totalTokens: prev.totalTokens + totalTokens,
+      inputTextTokens: prev.inputTextTokens + inputTextTokens,
+      outputTextTokens: prev.outputTextTokens + outputTextTokens,
+      inputAudioTokens: prev.inputAudioTokens + inputAudioTokens,
+      outputAudioTokens: prev.outputAudioTokens + outputAudioTokens,
+    }));
+  };
+
   const handleRealtimeEvent = (raw: string) => {
     let parsed: { type?: string; [key: string]: unknown };
     try {
@@ -237,6 +308,7 @@ export default function App() {
     } catch {
       return;
     }
+    recordUsage(parsed);
 
     const extractResponseId = (payload: { [key: string]: unknown }) => {
       const response = payload.response as { id?: unknown } | undefined;
@@ -321,6 +393,7 @@ export default function App() {
     () =>
       async function startListening() {
         setConnecting(true);
+        resetUsage();
         try {
           if (!sharedSecret) {
             push('Shared secret required to request token');
@@ -431,7 +504,7 @@ export default function App() {
           setConnecting(false);
         }
       },
-    [createLocalStream, enableTranscription, isMuted, push, sharedSecret]
+    [createLocalStream, enableTranscription, isMuted, push, resetUsage, sharedSecret]
   );
 
   const stop = () => {
@@ -452,6 +525,7 @@ export default function App() {
     assistantDraftRef.current = '';
     setUserDraft('');
     setAssistantDraft('');
+    resetUsage();
     setStatus('idle');
     push('Stopped listening');
   };
@@ -477,6 +551,10 @@ export default function App() {
   };
 
   const canInterrupt = Boolean(activeResponseId && dataChannelRef.current?.readyState === 'open');
+  const hasPricing = PRICE_INPUT_USD_PER_1M > 0 || PRICE_OUTPUT_USD_PER_1M > 0;
+  const inputCostUsd = (usage.inputTokens / 1_000_000) * (Number.isFinite(PRICE_INPUT_USD_PER_1M) ? PRICE_INPUT_USD_PER_1M : 0);
+  const outputCostUsd = (usage.outputTokens / 1_000_000) * (Number.isFinite(PRICE_OUTPUT_USD_PER_1M) ? PRICE_OUTPUT_USD_PER_1M : 0);
+  const totalCostEur = (inputCostUsd + outputCostUsd) * (Number.isFinite(EUR_PER_USD) ? EUR_PER_USD : 1);
 
   const handlePushToTalk = async () => {
     if (!pushToTalk) return;
@@ -534,6 +612,13 @@ export default function App() {
           </button>
         )}
         <button onClick={() => setShowSettings((prev) => !prev)}>{showSettings ? 'Hide settings' : 'Settings'}</button>
+        <button
+          className="dropdown-toggle"
+          aria-expanded={showLog}
+          onClick={() => setShowLog((prev) => !prev)}
+        >
+          Event log
+        </button>
       </section>
 
       {showSettings && (
@@ -597,6 +682,40 @@ export default function App() {
         {isMuted && <p>Microphone muted</p>}
       </section>
 
+      <section className="usage">
+        <h2>Session usage</h2>
+        <div className="usage-grid">
+          <div>
+            <span className="usage-label">Input tokens</span>
+            <strong>{tokenFormatter.format(usage.inputTokens)}</strong>
+          </div>
+          <div>
+            <span className="usage-label">Output tokens</span>
+            <strong>{tokenFormatter.format(usage.outputTokens)}</strong>
+          </div>
+          <div>
+            <span className="usage-label">Total tokens</span>
+            <strong>{tokenFormatter.format(usage.totalTokens)}</strong>
+          </div>
+          <div>
+            <span className="usage-label">Input audio tokens</span>
+            <strong>{tokenFormatter.format(usage.inputAudioTokens)}</strong>
+          </div>
+          <div>
+            <span className="usage-label">Output audio tokens</span>
+            <strong>{tokenFormatter.format(usage.outputAudioTokens)}</strong>
+          </div>
+        </div>
+        <div className="usage-cost">
+          <span>Estimated cost</span>
+          {hasPricing ? (
+            <strong>{eurFormatter.format(totalCostEur)}</strong>
+          ) : (
+            <span className="muted">Set pricing in .env</span>
+          )}
+        </div>
+      </section>
+
       <section className="transcripts">
         <div className="transcript-card">
           <h2>Your speech</h2>
@@ -618,17 +737,19 @@ export default function App() {
         </div>
       </section>
 
-      <section className="log">
-        <h2>Event log</h2>
-        <div className="log-entries">
-          {events.map((event, index) => (
-            <div key={`${event.ts}-${index}`} className="log-row">
-              <span>{new Date(event.ts).toLocaleTimeString()}</span>
-              <span>{event.message}</span>
-            </div>
-          ))}
-        </div>
-      </section>
+      {showLog && (
+        <section className="log log-collapsible">
+          <h2>Event log</h2>
+          <div className="log-entries">
+            {events.map((event, index) => (
+              <div key={`${event.ts}-${index}`} className="log-row">
+                <span>{new Date(event.ts).toLocaleTimeString()}</span>
+                <span>{event.message}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
     </main>
   );
 }

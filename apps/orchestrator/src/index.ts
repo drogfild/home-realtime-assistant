@@ -41,8 +41,25 @@ async function bootstrap() {
     max: 60,
   });
 
+  const corsOrigin = env.CORS_ORIGIN.trim();
+  const allowedOrigins = corsOrigin === '*'
+    ? null
+    : corsOrigin.split(',').map((origin) => origin.trim()).filter(Boolean);
+
   app.use(helmet());
-  app.use(cors({ origin: env.CORS_ORIGIN, credentials: true }));
+  app.use(
+    cors({
+      origin: (request) => {
+        const requestOrigin = request?.header?.origin ?? request?.headers?.origin;
+        if (corsOrigin === '*') {
+          return requestOrigin ?? '*';
+        }
+        if (!requestOrigin || !allowedOrigins) return '';
+        return allowedOrigins.includes(requestOrigin) ? requestOrigin : '';
+      },
+      credentials: true,
+    }),
+  );
   app.use(rateLimiter);
   app.use(bodyParser());
   app.use(attachRequestIds());

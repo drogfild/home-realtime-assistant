@@ -59,6 +59,7 @@ export async function createEphemeralToken(env: Env, options?: { enableTranscrip
   const url = 'https://api.openai.com/v1/realtime/sessions';
   const tools = await getToolList(env);
   const toolDefinitions = tools.map((tool) => ({
+    type: 'function',
     name: tool.name,
     description: tool.description ?? '',
     parameters: tool.parameters ?? { type: 'object', properties: {}, additionalProperties: false },
