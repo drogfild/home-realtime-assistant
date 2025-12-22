@@ -5,7 +5,7 @@ import { Context } from 'koa';
 import { createLogger, redactObject, signHmac, ToolInvokeRequestSchema } from '@home/shared';
 import { createEphemeralToken, createRealtimeAnswerSdp } from './openai';
 import { Env } from './config';
-import { requireAuth, verifyInternalHmac } from './auth';
+import { requireAuth } from './auth';
 
 export function createRoutes(env: Env) {
   const router = new Router();
@@ -52,7 +52,7 @@ export function createRoutes(env: Env) {
     ctx.body = { answerSdp };
   });
 
-  router.post('/api/tools/dispatch', requireAuth(env), verifyInternalHmac(env), async (ctx: Context) => {
+  router.post('/api/tools/dispatch', requireAuth(env), async (ctx: Context) => {
     const parseResult = ToolInvokeRequestSchema.safeParse(ctx.request.body);
     if (!parseResult.success) {
       ctx.status = 400;

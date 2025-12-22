@@ -19,6 +19,11 @@ type UsageSnapshot = {
   output_token_details?: { text_tokens?: number; audio_tokens?: number };
 };
 
+type ToolCallBuffer = {
+  name: string;
+  argsText: string;
+};
+
 const EMPTY_USAGE = {
   inputTokens: 0,
   outputTokens: 0,
@@ -94,6 +99,9 @@ export default function App() {
   const [activeResponseId, setActiveResponseId] = useState<string | null>(null);
   const audioTrackSeenRef = useRef(false);
   const countedUsageRef = useRef<Set<string>>(new Set());
+  const toolArgsRef = useRef<Map<string, ToolCallBuffer>>(new Map());
+  const toolCallsInFlightRef = useRef<Set<string>>(new Set());
+  const toolSessionIdRef = useRef<string>(crypto.randomUUID());
   const tokenFormatter = useMemo(() => new Intl.NumberFormat('fi-FI'), []);
   const eurFormatter = useMemo(
     () =>
@@ -152,6 +160,86 @@ export default function App() {
     setUsage({ ...EMPTY_USAGE });
     countedUsageRef.current.clear();
   }, []);
+
+  const dispatchToolCall = useCallback(
+    async (tool: string, args: unknown) => {
+      if (!sharedSecret) {
+        throw new Error('Shared secret required to dispatch tools');
+      }
+      const headers: Record<string, string> = {
+        'x-shared-secret': sharedSecret,
+        'x-request-id': crypto.randomUUID(),
+        'x-session-id': toolSessionIdRef.current,
+        'x-user-id': 'web-client',
+      };
+      const response = await axios.post(
+        `${ORCHESTRATOR_BASE_URL}/api/tools/dispatch`,
+        { tool, args },
+        { headers },
+      );
+      return response.data as { result?: unknown };
+    },
+    [sharedSecret]
+  );
+
+  const sendToolResponse = useCallback((callId: string, output: string) => {
+    const dc = dataChannelRef.current;
+    if (!dc || dc.readyState !== 'open') {
+      push('Data channel not ready for tool response');
+      return;
+    }
+    dc.send(JSON.stringify({ type: 'tool.response', tool_call_id: callId, output }));
+  }, [push]);
+
+  const invokeToolCall = useCallback(
+    async (name: string, callId: string, argsText: string) => {
+      if (toolCallsInFlightRef.current.has(callId)) return;
+      toolCallsInFlightRef.current.add(callId);
+      let args: unknown = {};
+      if (argsText) {
+        try {
+          args = JSON.parse(argsText);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'invalid_json';
+          sendToolResponse(callId, JSON.stringify({ error: 'invalid_tool_args', message }));
+          push(`Tool args invalid: ${name}`);
+          toolCallsInFlightRef.current.delete(callId);
+          return;
+        }
+      }
+      push(`Tool call: ${name}`);
+      try {
+        const response = await dispatchToolCall(name, args);
+        const payload = response?.result ?? response;
+        sendToolResponse(callId, JSON.stringify(payload ?? {}));
+        push(`Tool result: ${name}`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'tool_call_failed';
+        sendToolResponse(callId, JSON.stringify({ error: 'tool_call_failed', message }));
+        push(`Tool failed: ${name}`);
+      } finally {
+        toolCallsInFlightRef.current.delete(callId);
+      }
+    },
+    [dispatchToolCall, push, sendToolResponse]
+  );
+
+  const bufferToolArgs = (callId: string, name: string, delta: string) => {
+    const existing = toolArgsRef.current.get(callId);
+    const next = {
+      name,
+      argsText: `${existing?.argsText ?? ''}${delta}`,
+    };
+    toolArgsRef.current.set(callId, next);
+  };
+
+  const flushToolArgs = (callId: string, name?: string, argsText?: string) => {
+    const buffered = toolArgsRef.current.get(callId);
+    const resolvedName = name ?? buffered?.name ?? 'unknown_tool';
+    const resolvedArgs = argsText ?? buffered?.argsText ?? '';
+    toolArgsRef.current.delete(callId);
+    void invokeToolCall(resolvedName, callId, resolvedArgs);
+  };
 
   useEffect(() => {
     refreshDeviceList();
@@ -310,6 +398,64 @@ export default function App() {
     }
     recordUsage(parsed);
 
+    const callIdFrom = (payload: { [key: string]: unknown }) => {
+      const callId = payload.call_id ?? payload.tool_call_id ?? payload.id;
+      return typeof callId === 'string' ? callId : null;
+    };
+
+    const nameFrom = (payload: { [key: string]: unknown }) => {
+      const name = payload.name ?? payload.tool_name;
+      return typeof name === 'string' ? name : null;
+    };
+
+    if (
+      parsed.type === 'response.function_call_arguments.delta' ||
+      parsed.type === 'response.tool_call_arguments.delta'
+    ) {
+      const callId = callIdFrom(parsed);
+      const name = nameFrom(parsed);
+      const delta = typeof parsed.arguments === 'string' ? parsed.arguments : typeof parsed.delta === 'string' ? parsed.delta : '';
+      if (callId && name && delta) {
+        bufferToolArgs(callId, name, delta);
+      }
+      return;
+    }
+
+    if (
+      parsed.type === 'response.function_call_arguments.done' ||
+      parsed.type === 'response.tool_call_arguments.done'
+    ) {
+      const callId = callIdFrom(parsed);
+      const name = nameFrom(parsed);
+      const argsText =
+        typeof parsed.arguments === 'string'
+          ? parsed.arguments
+          : parsed.arguments && typeof parsed.arguments === 'object'
+            ? JSON.stringify(parsed.arguments)
+            : '';
+      if (callId) {
+        flushToolArgs(callId, name ?? undefined, argsText || undefined);
+      }
+      return;
+    }
+
+    if (parsed.type === 'response.output_item.added' || parsed.type === 'response.output_item.done') {
+      const item = parsed.item as { type?: string; name?: string; arguments?: unknown; call_id?: string } | undefined;
+      if (item?.type === 'function_call') {
+        const callId = typeof item.call_id === 'string' ? item.call_id : null;
+        if (callId) {
+          const argsText =
+            typeof item.arguments === 'string'
+              ? item.arguments
+              : item.arguments && typeof item.arguments === 'object'
+                ? JSON.stringify(item.arguments)
+                : undefined;
+          flushToolArgs(callId, item.name, argsText);
+        }
+      }
+      return;
+    }
+
     const extractResponseId = (payload: { [key: string]: unknown }) => {
       const response = payload.response as { id?: unknown } | undefined;
       if (response && typeof response.id === 'string') return response.id;
@@ -393,6 +539,9 @@ export default function App() {
     () =>
       async function startListening() {
         setConnecting(true);
+        toolSessionIdRef.current = crypto.randomUUID();
+        toolArgsRef.current.clear();
+        toolCallsInFlightRef.current.clear();
         resetUsage();
         try {
           if (!sharedSecret) {
@@ -525,7 +674,6 @@ export default function App() {
     assistantDraftRef.current = '';
     setUserDraft('');
     setAssistantDraft('');
-    resetUsage();
     setStatus('idle');
     push('Stopped listening');
   };
