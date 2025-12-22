@@ -44,6 +44,8 @@ async function bootstrap() {
   app.use(bodyParser());
 
   router.post('/v1/tools/invoke', verifyInternalHmac(env), async (ctx) => {
+    const start = Date.now();
+    const slowThresholdMs = 2_000;
     const parseCtx = RequestContextSchema.safeParse({
       requestId: ctx.get('x-request-id') || 'unknown',
       sessionId: ctx.get('x-session-id') || 'unknown',
@@ -55,13 +57,27 @@ async function bootstrap() {
     const args = ctx.request.body?.args;
     const tool = toolName ? resolveTool(tools, toolName) : undefined;
     if (!tool) {
+      logger.warn({
+        event: 'tool_unknown',
+        tool: toolName ?? 'missing',
+        duration_ms: Date.now() - start,
+        sessionId: context.sessionId,
+        requestId: context.requestId,
+        userId: context.userId,
+      });
       ctx.status = 400;
       ctx.body = { error: 'unknown_tool' };
       return;
     }
+    logger.info({
+      event: 'tool_invoked',
+      tool: tool.name,
+      sessionId: context.sessionId,
+      requestId: context.requestId,
+      userId: context.userId,
+    });
     try {
       const validated = validateArgs(tool, args);
-      const start = Date.now();
       const result = await tool.handler(validated);
       const duration = Date.now() - start;
       logger.info({
@@ -72,22 +88,50 @@ async function bootstrap() {
         requestId: context.requestId,
         userId: context.userId,
       });
+      if (duration > slowThresholdMs) {
+        logger.warn({
+          event: 'tool_slow',
+          tool: tool.name,
+          duration_ms: duration,
+          sessionId: context.sessionId,
+          requestId: context.requestId,
+          userId: context.userId,
+        });
+      }
       ctx.body = { result };
     } catch (error) {
+      const duration = Date.now() - start;
       logger.warn({
         event: 'tool_error',
         tool: tool.name,
+        duration_ms: duration,
         sessionId: context.sessionId,
         requestId: context.requestId,
         userId: context.userId,
         error: redactObject(error),
       });
+      if (duration > slowThresholdMs) {
+        logger.warn({
+          event: 'tool_slow',
+          tool: tool.name,
+          duration_ms: duration,
+          sessionId: context.sessionId,
+          requestId: context.requestId,
+          userId: context.userId,
+        });
+      }
       ctx.status = 400;
       ctx.body = { error: (error as Error).message || 'tool_failed' };
     }
   });
 
   router.get('/v1/tools/list', verifyInternalHmac(env), async (ctx) => {
+    const toolNames = tools.map((tool) => tool.name);
+    logger.info({
+      event: 'tool_list',
+      tool_count: toolNames.length,
+      tools: toolNames,
+    });
     ctx.body = {
       tools: tools.map((tool) => ({
         name: tool.name,
