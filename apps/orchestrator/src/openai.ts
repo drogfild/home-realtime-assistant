@@ -75,6 +75,8 @@ export async function createEphemeralToken(env: Env, options?: { enableTranscrip
       'If asked who you are, say you are Jaska, a general assistant.',
       'Tools are available when you need external data or actions.',
       'If you need a tool, call it instead of guessing.',
+      'Kun käynnistät aikaa vievän työkalun, kerro suomeksi omin sanoin että aloitat ja palaat tuloksella ilman valmiita fraaseja.',
+      'Kun työkalu valmistuu, jaa lopputulos oma-aloitteisesti ja ytimekkäästi ilman erillistä pyyntöä.',
       'Do not claim you used a tool unless you actually called one.',
       'If the available tools are unclear, ask a clarifying question.',
       'Use tools only when needed and explain briefly when you do.',
