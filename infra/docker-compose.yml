@@ -1,0 +1,56 @@
+services:
+  orchestrator:
+    build:
+      context: ..
+      dockerfile: apps/orchestrator/Dockerfile
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_REALTIME_MODEL=${OPENAI_REALTIME_MODEL:-gpt-4o-realtime-preview}
+      - ORCHESTRATOR_PORT=3001
+      - ORCHESTRATOR_BASE_URL=http://orchestrator:3001
+      - TOOL_GATEWAY_URL=http://tool-gateway:4001
+      - AUTH_SHARED_SECRET=${AUTH_SHARED_SECRET}
+      - INTERNAL_HMAC_SECRET=${INTERNAL_HMAC_SECRET}
+      - LOG_LEVEL=info
+      - CORS_ORIGIN=http://localhost:4173
+    ports:
+      - "3001:3001"
+    depends_on:
+      - tool-gateway
+
+  tool-gateway:
+    build:
+      context: ..
+      dockerfile: apps/tool-gateway/Dockerfile
+    environment:
+      - TOOL_GATEWAY_PORT=4001
+      - INTERNAL_HMAC_SECRET=${INTERNAL_HMAC_SECRET}
+      - HOME_ASSISTANT_URL=${HOME_ASSISTANT_URL}
+      - HOME_ASSISTANT_TOKEN=${HOME_ASSISTANT_TOKEN}
+      - ALLOWLIST_HTTP_HOSTS=${ALLOWLIST_HTTP_HOSTS}
+      - LOG_LEVEL=info
+    ports:
+      - "4001:4001"
+
+  web:
+    build:
+      context: ..
+      dockerfile: apps/web/Dockerfile
+    environment:
+      - VITE_ORCHESTRATOR_BASE_URL=http://localhost:3001
+    ports:
+      - "4173:4173"
+    depends_on:
+      - orchestrator
+
+  reverse-proxy:
+    image: traefik:v2.11
+    command:
+      - "--providers.docker=true"
+      - "--entrypoints.web.address=:80"
+    ports:
+      - "80:80"
+    depends_on:
+      - orchestrator
+      - tool-gateway
+      - web

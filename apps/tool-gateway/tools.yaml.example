@@ -1,0 +1,6 @@
+tools:
+  - name: n8n_custom_webhook
+    description: Trigger a custom n8n workflow
+    url: https://n8n.example.com/webhook/your-webhook-id
+    headers:
+      Authorization: "Bearer CHANGE_ME"
